@@ -107,7 +107,7 @@ class LearnedBlockTransform:
         # --- Paso 2: Entrenamiento (Interno) ---
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
 
-        for _ in range(self.epochs):
+        for epoch in range(self.epochs):
             optimizer.zero_grad()
             x_hat, y = self.model(X)
 
@@ -123,6 +123,12 @@ class LearnedBlockTransform:
 
             loss.backward()
             optimizer.step()
+
+            if (epoch + 1) % max(1, self.epochs // 10) == 0 or epoch == 0:
+                if self.lambda_gain > 0:
+                    logging.info(f"Epoch [{epoch+1}/{self.epochs}] - Loss {loss.item():.6f} (MSE + Lambda * Bit Rate = {mse_loss.item():.6f} + {self.lambda_gain} * {coding_gain_loss.item():.6f})")
+                else:
+                    logging.info(f"Epoch [{epoch+1}/{self.epochs}] - Loss {loss.item():.6f} (MSE: {mse_loss.item():.6f})")
 
         # --- Paso 3: Guardar Side Info (SOLO DECODER) ---
         # Solo guardamos los pesos del decoder (transformada inversa) y la media
