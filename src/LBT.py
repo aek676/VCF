@@ -37,11 +37,11 @@ disable_subbands = False
 
 parser.parser_encode.add_argument("-B", "--block_size_DCT", type=parser.int_or_str, help=f"Block size (default: {default_block_size})", default=default_block_size)
 parser.parser_encode.add_argument("--side_info", type=str, help="Ruta para guardar los pesos entrenados (opcional)", default=None)
-parser.parser_encode.add_argument("--epochs", type=int, help="Number of training epochs", default=1000)
-parser.parser_encode.add_argument("--lr", type=float, help="Learning rate", default=1e-3)
+parser.parser_encode.add_argument("--epochs", type=int, help="Number of training epochs (default: %(default)s)", default=1000)
+parser.parser_encode.add_argument("--lr", type=float, help="Learning rate (default: %(default)s)", default=1e-3)
 parser.parser_encode.add_argument("-t", "--color_transform", type=parser.int_or_str, help=f"Color transform (default: \"{default_CT}\")", default=default_CT)
 parser.parser_encode.add_argument("-p", "--perceptual_quantization", action='store_true', help=f"Use perceptual quantization (default: \"{perceptual_quantization}\")", default=perceptual_quantization)
-parser.parser_encode.add_argument("-L", "--Lambda", type=parser.int_or_str, help="Relative weight between the rate and the distortion. If provided (float), the block size is RD-optimized between {2**i; i=1,2,3,4,5,6,7}. For example, if Lambda=1.0, then the rate and the distortion have the same weight.")
+parser.parser_encode.add_argument("-L", "--Lambda", type=parser.int_or_str, help="Relative weight between the rate and the distortion. If provided (float), the block size is RD-optimized between {2**i; i=1,2,3,4,5,6,7}. For example, if Lambda=1.0, then the rate and the distortion have the same weight. (default: 1e-6)", default=None)
 parser.parser_encode.add_argument("-x", "--disable_subbands", action='store_true', help=f"Disable the coefficients reordering in subbands (default: \"{disable_subbands}\")", default=disable_subbands)
 
 
@@ -107,7 +107,7 @@ class LearnedBlockTransform:
         # --- Paso 2: Entrenamiento (Interno) ---
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
 
-        for _ in range(self.epochs):
+        for epoch in range(self.epochs):
             optimizer.zero_grad()
             x_hat, y = self.model(X)
 
@@ -124,10 +124,17 @@ class LearnedBlockTransform:
             loss.backward()
             optimizer.step()
 
-        # --- Paso 3: Guardar Side Info ---
-        # Guardamos pesos y la media necesaria para decodificar
+            if (epoch + 1) % max(1, self.epochs // 10) == 0 or epoch == 0:
+                if self.lambda_gain > 0:
+                    logging.info(f"Epoch [{epoch+1}/{self.epochs}] - Loss {loss.item():.6f} (MSE + Lambda * Bit Rate = {mse_loss.item():.6f} + {self.lambda_gain} * {coding_gain_loss.item():.6f})")
+                else:
+                    logging.info(f"Epoch [{epoch+1}/{self.epochs}] - Loss {loss.item():.6f} (MSE: {mse_loss.item():.6f})")
+
+        # --- Paso 3: Guardar Side Info (SOLO DECODER) ---
+        # Solo guardamos los pesos del decoder (transformada inversa) y la media
+        # El encoder no es necesario para la decodificación
         torch.save({
-            'state_dict': self.model.state_dict(),
+            'decoder_state': self.model.decoder.state_dict(),
             'mean_val': self.mean_val
         }, side_info_file)
 
@@ -145,12 +152,12 @@ class LearnedBlockTransform:
         1. Carga pesos desde 'side_info_file'.
         2. Retorna imagen reconstruida.
         """
-        # --- Paso 1: Cargar Modelo ---
+        # --- Paso 1: Cargar Modelo (SOLO DECODER) ---
         if not os.path.exists(side_info_file):
             raise FileNotFoundError(f"No se encuentra el archivo de pesos: {side_info_file}")
 
         checkpoint = torch.load(side_info_file)
-        self.model.load_state_dict(checkpoint['state_dict'])
+        self.model.decoder.load_state_dict(checkpoint['decoder_state'])
         self.mean_val = checkpoint['mean_val']
 
         self.model.eval()
