@@ -124,10 +124,11 @@ class LearnedBlockTransform:
             loss.backward()
             optimizer.step()
 
-        # --- Paso 3: Guardar Side Info ---
-        # Guardamos pesos y la media necesaria para decodificar
+        # --- Paso 3: Guardar Side Info (SOLO DECODER) ---
+        # Solo guardamos los pesos del decoder (transformada inversa) y la media
+        # El encoder no es necesario para la decodificación
         torch.save({
-            'state_dict': self.model.state_dict(),
+            'decoder_state': self.model.decoder.state_dict(),
             'mean_val': self.mean_val
         }, side_info_file)
 
@@ -145,12 +146,12 @@ class LearnedBlockTransform:
         1. Carga pesos desde 'side_info_file'.
         2. Retorna imagen reconstruida.
         """
-        # --- Paso 1: Cargar Modelo ---
+        # --- Paso 1: Cargar Modelo (SOLO DECODER) ---
         if not os.path.exists(side_info_file):
             raise FileNotFoundError(f"No se encuentra el archivo de pesos: {side_info_file}")
 
         checkpoint = torch.load(side_info_file)
-        self.model.load_state_dict(checkpoint['state_dict'])
+        self.model.decoder.load_state_dict(checkpoint['decoder_state'])
         self.mean_val = checkpoint['mean_val']
 
         self.model.eval()
